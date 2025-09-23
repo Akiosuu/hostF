@@ -84,16 +84,37 @@ echo.
 for /r "!SOURCE_DIR!" %%f in (*.mp4) do (
     set "INPUT_FILE=%%f"
     
-    :: Calculate relative path
-    set "REL_PATH=!INPUT_FILE:*%SOURCE_DIR%=!"
+    :: Get just the drive letter from source directory for proper path calculation
+    for /f "tokens=1 delims=:" %%d in ("!SOURCE_DIR!") do set "SOURCE_DRIVE=%%d:"
+    
+    :: Calculate relative path more robustly
+    set "REL_PATH=!INPUT_FILE!"
+    
+    :: Remove the source directory path from the full path
+    call set "REL_PATH=%%REL_PATH:!SOURCE_DIR!=%%"
+    
+    :: Clean up any leading backslashes
     if "!REL_PATH:~0,1!"=="\" set "REL_PATH=!REL_PATH:~1!"
+    
+    :: Handle case where paths might be identical (file in root of source)
+    if "!REL_PATH!"=="!INPUT_FILE!" (
+        for %%n in ("!INPUT_FILE!") do set "REL_PATH=%%~nxn"
+    )
     
     :: Create output file path
     set "OUTPUT_FILE=!OUTPUT_DIR!\!REL_PATH!"
     
-    :: Create output directory structure
+    :: Create output directory structure (handle long paths)
     for %%d in ("!OUTPUT_FILE!") do (
-        if not exist "%%~dpd" mkdir "%%~dpd"
+        set "OUTPUT_DIR_PATH=%%~dpd"
+        if not exist "!OUTPUT_DIR_PATH!" (
+            mkdir "!OUTPUT_DIR_PATH!" 2>nul
+            if !errorlevel! neq 0 (
+                echo ERROR: Could not create directory: !OUTPUT_DIR_PATH!
+                set /a FAILED_FILES+=1
+                goto :continue_loop
+            )
+        )
     )
     
     :: Skip if output file already exists
@@ -102,6 +123,8 @@ for /r "!SOURCE_DIR!" %%f in (*.mp4) do (
         set /a PROCESSED_FILES+=1
     ) else (
         echo Processing: !REL_PATH!
+        echo   Input:  !INPUT_FILE!
+        echo   Output: !OUTPUT_FILE!
         
         :: Compress video with high quality settings
         ffmpeg -i "!INPUT_FILE!" ^
@@ -111,9 +134,10 @@ for /r "!SOURCE_DIR!" %%f in (*.mp4) do (
                -c:a aac ^
                -b:a 128k ^
                -movflags +faststart ^
-               -y "!OUTPUT_FILE!" >nul 2>&1
+               -y "!OUTPUT_FILE!" 2>&1 | findstr /i "error\|failed\|invalid"
         
-        if !errorlevel! equ 0 (
+        :: Check if output file was created successfully
+        if exist "!OUTPUT_FILE!" (
             echo SUCCESS: !REL_PATH!
             set /a PROCESSED_FILES+=1
             
@@ -121,17 +145,24 @@ for /r "!SOURCE_DIR!" %%f in (*.mp4) do (
             for %%a in ("!INPUT_FILE!") do set "INPUT_SIZE=%%~za"
             for %%b in ("!OUTPUT_FILE!") do set "OUTPUT_SIZE=%%~zb"
             
-            set /a "COMPRESSION_RATIO=(!INPUT_SIZE! - !OUTPUT_SIZE!) * 100 / !INPUT_SIZE!"
-            echo   Original: !INPUT_SIZE! bytes
-            echo   Compressed: !OUTPUT_SIZE! bytes
-            echo   Saved: !COMPRESSION_RATIO!%%
+            if !OUTPUT_SIZE! gtr 0 (
+                set /a "COMPRESSION_RATIO=(!INPUT_SIZE! - !OUTPUT_SIZE!) * 100 / !INPUT_SIZE!"
+                echo   Original: !INPUT_SIZE! bytes
+                echo   Compressed: !OUTPUT_SIZE! bytes
+                echo   Saved: !COMPRESSION_RATIO!%%
+            )
         ) else (
-            echo FAILED: !REL_PATH!
+            echo FAILED: !REL_PATH! (output file not created)
             set /a FAILED_FILES+=1
         )
     )
+    
+    :continue_loop
     echo.
 )
+
+:: Clean up temporary file
+del "!TEMP_LIST!" 2>nul
 
 :: Final summary
 echo ================================
