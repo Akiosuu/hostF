@@ -1,0 +1,221 @@
+# MP4 Video Compression Script for Windows PowerShell
+# Compresses all .mp4 files in a directory while preserving folder structure
+# Usage: .\compress_videos.ps1 -SourcePath "C:\Source" -OutputPath "C:\Output"
+
+param(
+    [Parameter(Mandatory=$true)]
+    [string]$SourcePath,
+    
+    [Parameter(Mandatory=$true)]
+    [string]$OutputPath,
+    
+    [int]$CRF = 23,
+    [string]$Preset = "medium",
+    [string]$Codec = "libx264",
+    [int]$AudioBitrate = 128,
+    [switch]$SkipExisting,
+    [switch]$Verbose
+)
+
+# Function to check if ffmpeg is installed
+function Test-FFmpeg {
+    try {
+        $null = Get-Command ffmpeg -ErrorAction Stop
+        return $true
+    }
+    catch {
+        Write-Host "Error: ffmpeg is not installed or not in PATH" -ForegroundColor Red
+        Write-Host "Please install ffmpeg first:" -ForegroundColor Yellow
+        Write-Host "  Download from https://ffmpeg.org/download.html" -ForegroundColor Yellow
+        Write-Host "  Or use chocolatey: choco install ffmpeg" -ForegroundColor Yellow
+        Write-Host "  Or use winget: winget install ffmpeg" -ForegroundColor Yellow
+        return $false
+    }
+}
+
+# Function to format file size
+function Format-FileSize {
+    param([long]$Size)
+    
+    if ($Size -gt 1TB) { return "{0:N2} TB" -f ($Size / 1TB) }
+    elseif ($Size -gt 1GB) { return "{0:N2} GB" -f ($Size / 1GB) }
+    elseif ($Size -gt 1MB) { return "{0:N2} MB" -f ($Size / 1MB) }
+    elseif ($Size -gt 1KB) { return "{0:N2} KB" -f ($Size / 1KB) }
+    else { return "$Size bytes" }
+}
+
+# Function to compress a single video
+function Compress-Video {
+    param(
+        [string]$InputFile,
+        [string]$OutputFile,
+        [int]$CRF,
+        [string]$Preset,
+        [string]$Codec,
+        [int]$AudioBitrate
+    )
+    
+    # Create output directory if it doesn't exist
+    $outputDir = Split-Path $OutputFile -Parent
+    if (-not (Test-Path $outputDir)) {
+        New-Item -ItemType Directory -Path $outputDir -Force | Out-Null
+    }
+    
+    # Build ffmpeg command
+    $ffmpegArgs = @(
+        "-i", $InputFile,
+        "-c:v", $Codec,
+        "-preset", $Preset,
+        "-crf", $CRF,
+        "-c:a", "aac",
+        "-b:a", "${AudioBitrate}k",
+        "-movflags", "+faststart",
+        "-y",
+        $OutputFile
+    )
+    
+    if (-not $Verbose) {
+        $ffmpegArgs += @("-v", "quiet", "-stats")
+    }
+    
+    # Execute ffmpeg
+    try {
+        $process = Start-Process -FilePath "ffmpeg" -ArgumentList $ffmpegArgs -Wait -PassThru -NoNewWindow
+        return $process.ExitCode -eq 0
+    }
+    catch {
+        Write-Host "    ❌ Error running ffmpeg: $($_.Exception.Message)" -ForegroundColor Red
+        return $false
+    }
+}
+
+# Main script
+Write-Host "MP4 Video Compression Script" -ForegroundColor Cyan
+Write-Host "============================" -ForegroundColor Cyan
+
+# Validate parameters
+if (-not (Test-Path $SourcePath)) {
+    Write-Host "Error: Source directory '$SourcePath' does not exist" -ForegroundColor Red
+    exit 1
+}
+
+if (-not (Test-FFmpeg)) {
+    exit 1
+}
+
+# Create output directory
+if (-not (Test-Path $OutputPath)) {
+    New-Item -ItemType Directory -Path $OutputPath -Force | Out-Null
+}
+
+Write-Host ""
+Write-Host "Configuration:" -ForegroundColor Green
+Write-Host "  Source: $SourcePath" -ForegroundColor White
+Write-Host "  Output: $OutputPath" -ForegroundColor White
+Write-Host "  CRF: $CRF" -ForegroundColor White
+Write-Host "  Preset: $Preset" -ForegroundColor White
+Write-Host "  Codec: $Codec" -ForegroundColor White
+Write-Host "  Audio Bitrate: ${AudioBitrate}k" -ForegroundColor White
+Write-Host ""
+
+# Find all MP4 files
+Write-Host "Scanning for MP4 files..." -ForegroundColor Yellow
+$mp4Files = Get-ChildItem -Path $SourcePath -Filter "*.mp4" -Recurse -File
+$totalFiles = $mp4Files.Count
+
+if ($totalFiles -eq 0) {
+    Write-Host "No MP4 files found in the source directory." -ForegroundColor Red
+    exit 0
+}
+
+Write-Host "Found $totalFiles MP4 files to process" -ForegroundColor Green
+Write-Host ""
+
+# Initialize counters
+$processedFiles = 0
+$skippedFiles = 0
+$failedFiles = 0
+$totalOriginalSize = 0
+$totalCompressedSize = 0
+
+# Process each file
+$counter = 0
+foreach ($file in $mp4Files) {
+    $counter++
+    
+    # Calculate relative path
+    $relativePath = $file.FullName.Substring($SourcePath.Length + 1)
+    $outputFile = Join-Path $OutputPath $relativePath
+    
+    # Get original file size
+    $originalSize = $file.Length
+    $totalOriginalSize += $originalSize
+    
+    Write-Host "Processing ($counter/$totalFiles): $relativePath" -ForegroundColor White
+    Write-Host "  📁 Size: $(Format-FileSize $originalSize)" -ForegroundColor Gray
+    
+    # Skip if output exists and is newer (unless forced)
+    if ((Test-Path $outputFile) -and $SkipExisting) {
+        $outputFileInfo = Get-Item $outputFile
+        if ($outputFileInfo.LastWriteTime -gt $file.LastWriteTime) {
+            Write-Host "  ⏭️  Skipping (output exists and is newer)" -ForegroundColor Yellow
+            $skippedFiles++
+            $totalCompressedSize += $outputFileInfo.Length
+            continue
+        }
+    }
+    
+    # Compress the video
+    $startTime = Get-Date
+    $success = Compress-Video -InputFile $file.FullName -OutputFile $outputFile -CRF $CRF -Preset $Preset -Codec $Codec -AudioBitrate $AudioBitrate
+    $endTime = Get-Date
+    $duration = $endTime - $startTime
+    
+    if ($success -and (Test-Path $outputFile)) {
+        $compressedSize = (Get-Item $outputFile).Length
+        $totalCompressedSize += $compressedSize
+        
+        $compressionRatio = [math]::Round(($compressedSize / $originalSize) * 100, 1)
+        $spaceSaved = [math]::Round((($originalSize - $compressedSize) / $originalSize) * 100, 1)
+        
+        Write-Host "  ✅ Compressed: $(Format-FileSize $originalSize) → $(Format-FileSize $compressedSize)" -ForegroundColor Green
+        Write-Host "     📊 Ratio: $compressionRatio% of original, $spaceSaved% space saved" -ForegroundColor Green
+        Write-Host "     ⏱️  Time: $($duration.ToString('mm\:ss'))" -ForegroundColor Gray
+        
+        $processedFiles++
+    } else {
+        Write-Host "  ❌ Failed to compress" -ForegroundColor Red
+        $failedFiles++
+    }
+    
+    Write-Host ""
+}
+
+# Final summary
+Write-Host "==========================================" -ForegroundColor Cyan
+Write-Host "           COMPRESSION SUMMARY            " -ForegroundColor Cyan
+Write-Host "==========================================" -ForegroundColor Cyan
+Write-Host "Total files found: $totalFiles" -ForegroundColor White
+Write-Host "Successfully processed: $processedFiles" -ForegroundColor Green
+Write-Host "Skipped: $skippedFiles" -ForegroundColor Yellow
+Write-Host "Failed: $failedFiles" -ForegroundColor Red
+
+if ($totalOriginalSize -gt 0 -and $totalCompressedSize -gt 0) {
+    Write-Host ""
+    Write-Host "SIZE SUMMARY:" -ForegroundColor Cyan
+    Write-Host "Original total size: $(Format-FileSize $totalOriginalSize)" -ForegroundColor White
+    Write-Host "Compressed total size: $(Format-FileSize $totalCompressedSize)" -ForegroundColor White
+    
+    $totalRatio = [math]::Round(($totalCompressedSize / $totalOriginalSize) * 100, 1)
+    $totalSavings = [math]::Round((($totalOriginalSize - $totalCompressedSize) / $totalOriginalSize) * 100, 1)
+    $spaceSavedBytes = $totalOriginalSize - $totalCompressedSize
+    
+    Write-Host "Overall compression: $totalRatio% of original size" -ForegroundColor Green
+    Write-Host "Total space saved: $totalSavings% ($(Format-FileSize $spaceSavedBytes))" -ForegroundColor Green
+}
+
+Write-Host ""
+Write-Host "Compression complete! Output saved to: $OutputPath" -ForegroundColor Cyan
+Write-Host ""
+Write-Host "Press any key to exit..."
+$null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
