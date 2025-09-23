@@ -54,6 +54,9 @@ echo - Quality (CRF): !CRF! (lower = better quality, larger file)
 echo - Preset: !PRESET!
 echo - Codec: !CODEC!
 echo.
+echo DIRECTORY STRUCTURE: The output will mirror the input structure exactly
+echo Example: Source\Movies\Action\film.mkv -^> Output\Movies\Action\film.mp4
+echo.
 
 :: Confirm before proceeding
 set /p "CONFIRM=Continue? (y/n): "
