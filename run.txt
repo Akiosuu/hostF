@@ -80,7 +80,7 @@ for /r "!SOURCE_DIR!" %%f in (*.mp4) do (
     set /a TOTAL_FILES+=1
 )
 
-echo Found !TOTAL_FILES! MP4 files to process.
+echo Found !TOTAL_FILES! MKV files to process.
 echo.
 
 :: Process all MP4 files
