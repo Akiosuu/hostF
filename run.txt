@@ -60,9 +60,13 @@ function Convert-VideoFile {
     $originalSize = (Get-Item $InputFile).Length
     Write-Host "Original size: $(Get-FileSize $originalSize)" -ForegroundColor Cyan
     
+    # Escape file paths for FFmpeg (handle spaces and special characters)
+    $escapedInputFile = "`"$InputFile`""
+    $escapedOutputFile = "`"$OutputFile`""
+    
     # FFmpeg command with optimized settings for small file size and good quality
     $ffmpegArgs = @(
-        '-i', $InputFile
+        '-i', $escapedInputFile
         '-c:v', 'libx264'           # H.264 video codec
         '-crf', $CRF                # Constant Rate Factor (quality)
         '-preset', 'medium'         # Encoding speed vs compression efficiency
@@ -70,25 +74,53 @@ function Convert-VideoFile {
         '-b:a', '128k'             # Audio bitrate
         '-movflags', '+faststart'   # Web optimization
         '-y'                       # Overwrite output file
-        $OutputFile
+        $escapedOutputFile
     )
     
     try {
-        $process = Start-Process -FilePath "ffmpeg" -ArgumentList $ffmpegArgs -Wait -PassThru -NoNewWindow
+        # Validate input file exists and is accessible
+        if (-not (Test-Path $InputFile)) {
+            Write-Host "✗ Input file not found: $InputFile" -ForegroundColor Red
+            return $false
+        }
+        
+        # Check if input file is not locked/in use
+        try {
+            $fileStream = [System.IO.File]::Open($InputFile, 'Open', 'Read', 'ReadWrite')
+            $fileStream.Close()
+        }
+        catch {
+            Write-Host "✗ Input file is locked or in use: $InputFile" -ForegroundColor Red
+            return $false
+        }
+        
+        Write-Host "Running FFmpeg command..." -ForegroundColor Gray
+        $process = Start-Process -FilePath "ffmpeg" -ArgumentList $ffmpegArgs -Wait -PassThru -NoNewWindow -RedirectStandardError "ffmpeg_error.log"
         
         if ($process.ExitCode -eq 0) {
-            $newSize = (Get-Item $OutputFile).Length
-            $compressionRatio = [math]::Round((1 - ($newSize / $originalSize)) * 100, 2)
-            
-            Write-Host "✓ Conversion successful!" -ForegroundColor Green
-            Write-Host "New size: $(Get-FileSize $newSize)" -ForegroundColor Cyan
-            Write-Host "Size reduction: $compressionRatio%" -ForegroundColor Magenta
-            Write-Host "---" -ForegroundColor Gray
-            
-            return $true
+            if (Test-Path $OutputFile) {
+                $newSize = (Get-Item $OutputFile).Length
+                $compressionRatio = [math]::Round((1 - ($newSize / $originalSize)) * 100, 2)
+                
+                Write-Host "✓ Conversion successful!" -ForegroundColor Green
+                Write-Host "New size: $(Get-FileSize $newSize)" -ForegroundColor Cyan
+                Write-Host "Size reduction: $compressionRatio%" -ForegroundColor Magenta
+                Write-Host "---" -ForegroundColor Gray
+                
+                return $true
+            }
+            else {
+                Write-Host "✗ Output file was not created successfully" -ForegroundColor Red
+                return $false
+            }
         }
         else {
             Write-Host "✗ Conversion failed with exit code: $($process.ExitCode)" -ForegroundColor Red
+            if (Test-Path "ffmpeg_error.log") {
+                $errorContent = Get-Content "ffmpeg_error.log" -Tail 5
+                Write-Host "Last few lines of error log:" -ForegroundColor Yellow
+                $errorContent | ForEach-Object { Write-Host "  $_" -ForegroundColor Red }
+            }
             return $false
         }
     }
