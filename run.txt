@@ -1,11 +1,11 @@
 @echo off
 setlocal enabledelayedexpansion
 
-:: MP4 Video Compression Script
-:: Compresses all MP4 files in a directory while maintaining folder structure
+:: MKV to MP4 Conversion and Compression Script
+:: Converts and compresses all MKV files to MP4 while maintaining folder structure
 
 echo ================================
-echo MP4 Video Compression Script
+echo MKV to MP4 Conversion Script
 echo ================================
 echo.
 
@@ -73,7 +73,7 @@ set "PROCESSED_FILES=0"
 set "FAILED_FILES=0"
 
 :: Count total MP4 files first
-for /r "!SOURCE_DIR!" %%f in (*.mkv) do (
+for /r "!SOURCE_DIR!" %%f in (*.mp4) do (
     set /a TOTAL_FILES+=1
 )
 
@@ -81,7 +81,7 @@ echo Found !TOTAL_FILES! MP4 files to process.
 echo.
 
 :: Process all MP4 files
-for /r "!SOURCE_DIR!" %%f in (*.mkv) do (
+for /r "!SOURCE_DIR!" %%f in (*.mp4) do (
     set "INPUT_FILE=%%f"
     
     :: Get just the drive letter from source directory for proper path calculation
@@ -119,14 +119,14 @@ for /r "!SOURCE_DIR!" %%f in (*.mkv) do (
     
     :: Skip if output file already exists
     if exist "!OUTPUT_FILE!" (
-        echo SKIPPING: !REL_PATH! (already exists)
+        echo SKIPPING: !OUTPUT_REL_PATH! (already exists)
         set /a PROCESSED_FILES+=1
     ) else (
-        echo Processing: !REL_PATH!
+        echo Converting: !REL_PATH! -^> !OUTPUT_REL_PATH!
         echo   Input:  !INPUT_FILE!
         echo   Output: !OUTPUT_FILE!
         
-        :: Compress video with high quality settings
+        :: Convert and compress MKV to MP4 with high quality settings
         ffmpeg -i "!INPUT_FILE!" ^
                -c:v !CODEC! ^
                -crf !CRF! ^
@@ -138,7 +138,7 @@ for /r "!SOURCE_DIR!" %%f in (*.mkv) do (
         
         :: Check if output file was created successfully
         if exist "!OUTPUT_FILE!" (
-            echo SUCCESS: !REL_PATH!
+            echo SUCCESS: !OUTPUT_REL_PATH!
             set /a PROCESSED_FILES+=1
             
             :: Show file size comparison
@@ -147,12 +147,12 @@ for /r "!SOURCE_DIR!" %%f in (*.mkv) do (
             
             if !OUTPUT_SIZE! gtr 0 (
                 set /a "COMPRESSION_RATIO=(!INPUT_SIZE! - !OUTPUT_SIZE!) * 100 / !INPUT_SIZE!"
-                echo   Original: !INPUT_SIZE! bytes
-                echo   Compressed: !OUTPUT_SIZE! bytes
+                echo   Original MKV: !INPUT_SIZE! bytes
+                echo   Compressed MP4: !OUTPUT_SIZE! bytes
                 echo   Saved: !COMPRESSION_RATIO!%%
             )
         ) else (
-            echo FAILED: !REL_PATH! (output file not created)
+            echo FAILED: !OUTPUT_REL_PATH! (output file not created)
             set /a FAILED_FILES+=1
         )
     )
@@ -180,4 +180,3 @@ if !FAILED_FILES! gtr 0 (
 echo Output directory: !OUTPUT_DIR!
 echo.
 pause
-
