@@ -1,220 +1,226 @@
-:: If still no files found, do additional diagnostics
-if !TOTAL_FILES! equ 0 (
-    echo.
-    echo No MKV files found with any method. Running diagnostics...
-    echo.
+# Video Converter Script for Windows 10
+# Searches for .mp4 and .mkv files and converts them to optimized MP4 format
+# Requires FFmpeg to be installed and in PATH
+
+param(
+    [Parameter(Mandatory=$true)]
+    [string]$SourceDirectory,
     
-    :: Check for other video formats to help diagnose
-    echo Checking for all video file types in directory:
-    for %%ext in (mkv MKV mp4 MP4 avi AVI mov MOV wmv WMV flv FLV) do (
-        set "COUNT=0"
-        for /f "delims=" %%c in ('dir "!SOURCE_DIR!\*.%%ext" /s /b 2^>nul ^| find /c /v ""') do set "COUNT=%%c"
-        if !COUNT! gtr 0 echo   Found !COUNT! .%%ext files
+    [Parameter(Mandatory=$false)]
+    [string]$OutputDirectory = "",
+    
+    [Parameter(Mandatory=$false)]
+    [switch]$DeleteOriginal = $false,
+    
+    [Parameter(Mandatory=$false)]
+    [string]$Quality = "23",  # CRF value (18-28 recommended, lower = better quality)
+    
+    [Parameter(Mandatory=$false)]
+    [switch]$OverwriteExisting = $false
+)
+
+# Function to check if FFmpeg is available
+function Test-FFmpeg {
+    try {
+        $null = Get-Command ffmpeg -ErrorAction Stop
+        return $true
+    }
+    catch {
+        return $false
+    }
+}
+
+# Function to get human-readable file size
+function Get-FileSize {
+    param([long]$Bytes)
+    
+    $sizes = @("B", "KB", "MB", "GB", "TB")
+    $index = 0
+    $size = $Bytes
+    
+    while ($size -gt 1024 -and $index -lt $sizes.Length - 1) {
+        $size = $size / 1024
+        $index++
+    }
+    
+    return "{0:N2} {1}" -f $size, $sizes[$index]
+}
+
+# Function to convert video file
+function Convert-VideoFile {
+    param(
+        [string]$InputFile,
+        [string]$OutputFile,
+        [string]$CRF
     )
     
-    echo.
-    echo Checking a few sample filenames:
-    dir "!SOURCE_DIR!" /s /b | findstr /i "\.mkv \.mp4 \.avi \.mov" | head -10 2>nul
-    if errorlevel 1 (
-        set "SAMPLE_COUNT=0"
-        for /f "tokens=*" %%f in ('dir "!SOURCE_DIR!" /s /b ^| findstr /i "\.mkv \.mp4 \.avi \.mov"') do (
-            echo   %%f
-            set /a SAMPLE_COUNT+=1
-            if !SAMPLE_COUNT! geq 10 goto :end_samples
-        )
-        :end_samples
+    Write-Host "Converting: $InputFile" -ForegroundColor Yellow
+    Write-Host "Output: $OutputFile" -ForegroundColor Green
+    
+    $originalSize = (Get-Item $InputFile).Length
+    Write-Host "Original size: $(Get-FileSize $originalSize)" -ForegroundColor Cyan
+    
+    # FFmpeg command with optimized settings for small file size and good quality
+    $ffmpegArgs = @(
+        '-i', $InputFile
+        '-c:v', 'libx264'           # H.264 video codec
+        '-crf', $CRF                # Constant Rate Factor (quality)
+        '-preset', 'medium'         # Encoding speed vs compression efficiency
+        '-c:a', 'aac'              # AAC audio codec
+        '-b:a', '128k'             # Audio bitrate
+        '-movflags', '+faststart'   # Web optimization
+        '-y'                       # Overwrite output file
+        $OutputFile
     )
     
-    echo.
-    echo Please check:
-    echo 1. Are your video files actually .mkv files?
-    echo 2. Is the source path correct: !SOURCE_DIR!
-    echo 3. Do you have permission to access the files?
-    del "!TEMP_LIST!" 2>nul
-    pause
-    exit /b 1
-)@echo off
-setlocal enabledelayedexpansion
-
-:: MKV to MP4 Conversion and Compression Script
-:: Converts and compresses all MKV files to MP4 while maintaining folder structure
-
-echo ================================
-echo MKV to MP4 Conversion Script
-echo ================================
-echo.
-
-:: Check if ffmpeg is available
-ffmpeg -version >nul 2>&1
-if errorlevel 1 (
-    echo ERROR: ffmpeg is not found in PATH
-    echo Please install ffmpeg and add it to your system PATH
-    echo Download from: https://ffmpeg.org/download.html
-    pause
-    exit /b 1
-)
-
-:: Get source directory
-if "%~1"=="" (
-    set /p "SOURCE_DIR=Enter source directory path: "
-) else (
-    set "SOURCE_DIR=%~1"
-)
-
-:: Validate source directory
-if not exist "!SOURCE_DIR!" (
-    echo ERROR: Source directory does not exist: !SOURCE_DIR!
-    pause
-    exit /b 1
-)
-
-:: Get output directory
-set /p "OUTPUT_DIR=Enter output directory path: "
-
-:: Create output directory if it doesn't exist
-if not exist "!OUTPUT_DIR!" (
-    mkdir "!OUTPUT_DIR!"
-)
-
-:: Quality settings (you can modify these)
-set "CRF=23"
-set "PRESET=medium"
-set "CODEC=libx264"
-
-echo.
-echo Settings:
-echo - Source: !SOURCE_DIR!
-echo - Output: !OUTPUT_DIR!
-echo - Quality (CRF): !CRF! (lower = better quality, larger file)
-echo - Preset: !PRESET!
-echo - Codec: !CODEC!
-echo.
-echo DIRECTORY STRUCTURE: The output will mirror the input structure exactly
-echo Example: Source\Movies\Action\film.mkv -^> Output\Movies\Action\film.mp4
-echo.
-
-:: Confirm before proceeding
-set /p "CONFIRM=Continue? (y/n): "
-if /i not "!CONFIRM!"=="y" (
-    echo Operation cancelled.
-    pause
-    exit /b 0
-)
-
-echo.
-echo Starting compression...
-echo.
-
-:: Initialize counters
-set "TOTAL_FILES=0"
-set "PROCESSED_FILES=0"
-set "FAILED_FILES=0"
-
-:: Count total MP4 files first
-for /r "!SOURCE_DIR!" %%f in (*.mp4) do (
-    set /a TOTAL_FILES+=1
-)
-
-echo Found !TOTAL_FILES! MKV files to process.
-echo.
-
-:: Process all MP4 files
-for /r "!SOURCE_DIR!" %%f in (*.mp4) do (
-    set "INPUT_FILE=%%f"
-    
-    :: Get just the drive letter from source directory for proper path calculation
-    for /f "tokens=1 delims=:" %%d in ("!SOURCE_DIR!") do set "SOURCE_DRIVE=%%d:"
-    
-    :: Calculate relative path more robustly
-    set "REL_PATH=!INPUT_FILE!"
-    
-    :: Remove the source directory path from the full path
-    call set "REL_PATH=%%REL_PATH:!SOURCE_DIR!=%%"
-    
-    :: Clean up any leading backslashes
-    if "!REL_PATH:~0,1!"=="\" set "REL_PATH=!REL_PATH:~1!"
-    
-    :: Handle case where paths might be identical (file in root of source)
-    if "!REL_PATH!"=="!INPUT_FILE!" (
-        for %%n in ("!INPUT_FILE!") do set "REL_PATH=%%~nxn"
-    )
-    
-    :: Create output file path
-    set "OUTPUT_FILE=!OUTPUT_DIR!\!REL_PATH!"
-    
-    :: Create output directory structure (handle long paths)
-    for %%d in ("!OUTPUT_FILE!") do (
-        set "OUTPUT_DIR_PATH=%%~dpd"
-        if not exist "!OUTPUT_DIR_PATH!" (
-            mkdir "!OUTPUT_DIR_PATH!" 2>nul
-            if !errorlevel! neq 0 (
-                echo ERROR: Could not create directory: !OUTPUT_DIR_PATH!
-                set /a FAILED_FILES+=1
-                goto :continue_loop
-            )
-        )
-    )
-    
-    :: Skip if output file already exists
-    if exist "!OUTPUT_FILE!" (
-        echo SKIPPING: !OUTPUT_REL_PATH! (already exists)
-        set /a PROCESSED_FILES+=1
-    ) else (
-        echo Converting: !REL_PATH! -^> !OUTPUT_REL_PATH!
-        echo   Input:  !INPUT_FILE!
-        echo   Output: !OUTPUT_FILE!
+    try {
+        $process = Start-Process -FilePath "ffmpeg" -ArgumentList $ffmpegArgs -Wait -PassThru -NoNewWindow
         
-        :: Convert and compress MKV to MP4 with high quality settings
-        ffmpeg -i "!INPUT_FILE!" ^
-               -c:v !CODEC! ^
-               -crf !CRF! ^
-               -preset !PRESET! ^
-               -c:a aac ^
-               -b:a 128k ^
-               -movflags +faststart ^
-               -y "!OUTPUT_FILE!" 2>&1 | findstr /i "error\|failed\|invalid"
-        
-        :: Check if output file was created successfully
-        if exist "!OUTPUT_FILE!" (
-            echo SUCCESS: !OUTPUT_REL_PATH!
-            set /a PROCESSED_FILES+=1
+        if ($process.ExitCode -eq 0) {
+            $newSize = (Get-Item $OutputFile).Length
+            $compressionRatio = [math]::Round((1 - ($newSize / $originalSize)) * 100, 2)
             
-            :: Show file size comparison
-            for %%a in ("!INPUT_FILE!") do set "INPUT_SIZE=%%~za"
-            for %%b in ("!OUTPUT_FILE!") do set "OUTPUT_SIZE=%%~zb"
+            Write-Host "✓ Conversion successful!" -ForegroundColor Green
+            Write-Host "New size: $(Get-FileSize $newSize)" -ForegroundColor Cyan
+            Write-Host "Size reduction: $compressionRatio%" -ForegroundColor Magenta
+            Write-Host "---" -ForegroundColor Gray
             
-            if !OUTPUT_SIZE! gtr 0 (
-                set /a "COMPRESSION_RATIO=(!INPUT_SIZE! - !OUTPUT_SIZE!) * 100 / !INPUT_SIZE!"
-                echo   Original MKV: !INPUT_SIZE! bytes
-                echo   Compressed MP4: !OUTPUT_SIZE! bytes
-                echo   Saved: !COMPRESSION_RATIO!%%
-            )
-        ) else (
-            echo FAILED: !OUTPUT_REL_PATH! (output file not created)
-            set /a FAILED_FILES+=1
-        )
-    )
+            return $true
+        }
+        else {
+            Write-Host "✗ Conversion failed with exit code: $($process.ExitCode)" -ForegroundColor Red
+            return $false
+        }
+    }
+    catch {
+        Write-Host "✗ Error during conversion: $($_.Exception.Message)" -ForegroundColor Red
+        return $false
+    }
+}
+
+# Main script execution
+Write-Host "Video Converter Script Starting..." -ForegroundColor Blue
+Write-Host "=================================" -ForegroundColor Blue
+
+# Validate FFmpeg installation
+if (-not (Test-FFmpeg)) {
+    Write-Host "ERROR: FFmpeg is not installed or not in PATH!" -ForegroundColor Red
+    Write-Host "Please install FFmpeg from https://ffmpeg.org/download.html" -ForegroundColor Yellow
+    Write-Host "And make sure it's added to your system PATH." -ForegroundColor Yellow
+    exit 1
+}
+
+# Validate source directory
+if (-not (Test-Path $SourceDirectory)) {
+    Write-Host "ERROR: Source directory does not exist: $SourceDirectory" -ForegroundColor Red
+    exit 1
+}
+
+# Set output directory if not specified
+if ($OutputDirectory -eq "") {
+    $OutputDirectory = Join-Path $SourceDirectory "converted"
+}
+
+# Create output directory if it doesn't exist
+if (-not (Test-Path $OutputDirectory)) {
+    New-Item -ItemType Directory -Path $OutputDirectory -Force | Out-Null
+    Write-Host "Created output directory: $OutputDirectory" -ForegroundColor Green
+}
+
+Write-Host "Source Directory: $SourceDirectory" -ForegroundColor Cyan
+Write-Host "Output Directory: $OutputDirectory" -ForegroundColor Cyan
+Write-Host "Quality (CRF): $Quality" -ForegroundColor Cyan
+Write-Host "Delete Original: $DeleteOriginal" -ForegroundColor Cyan
+Write-Host "---" -ForegroundColor Gray
+
+# Search for video files
+$videoExtensions = @("*.mp4", "*.mkv")
+$videoFiles = @()
+
+foreach ($extension in $videoExtensions) {
+    $files = Get-ChildItem -Path $SourceDirectory -Filter $extension -Recurse -File
+    $videoFiles += $files
+}
+
+if ($videoFiles.Count -eq 0) {
+    Write-Host "No .mp4 or .mkv files found in the specified directory." -ForegroundColor Yellow
+    exit 0
+}
+
+Write-Host "Found $($videoFiles.Count) video file(s) to process:" -ForegroundColor Green
+foreach ($file in $videoFiles) {
+    Write-Host "  - $($file.FullName)" -ForegroundColor White
+}
+Write-Host "---" -ForegroundColor Gray
+
+# Process each video file
+$successCount = 0
+$failureCount = 0
+$totalOriginalSize = 0
+$totalNewSize = 0
+
+foreach ($videoFile in $videoFiles) {
+    $relativePath = $videoFile.FullName.Substring($SourceDirectory.Length + 1)
+    $outputFileName = [System.IO.Path]::ChangeExtension($relativePath, ".mp4")
+    $outputFilePath = Join-Path $OutputDirectory $outputFileName
     
-    :continue_loop
-    echo.
-)
+    # Create subdirectories if needed
+    $outputDir = Split-Path $outputFilePath -Parent
+    if (-not (Test-Path $outputDir)) {
+        New-Item -ItemType Directory -Path $outputDir -Force | Out-Null
+    }
+    
+    # Skip if output file exists and overwrite is not enabled
+    if ((Test-Path $outputFilePath) -and -not $OverwriteExisting) {
+        Write-Host "Skipping (already exists): $($videoFile.Name)" -ForegroundColor Yellow
+        continue
+    }
+    
+    # Skip if input and output are the same file and it's already MP4
+    if (($videoFile.Extension -eq ".mp4") -and ($videoFile.FullName -eq $outputFilePath)) {
+        Write-Host "Skipping (same file): $($videoFile.Name)" -ForegroundColor Yellow
+        continue
+    }
+    
+    $originalSize = $videoFile.Length
+    $totalOriginalSize += $originalSize
+    
+    # Convert the file
+    $success = Convert-VideoFile -InputFile $videoFile.FullName -OutputFile $outputFilePath -CRF $Quality
+    
+    if ($success) {
+        $successCount++
+        $newSize = (Get-Item $outputFilePath).Length
+        $totalNewSize += $newSize
+        
+        # Delete original file if requested and conversion was successful
+        if ($DeleteOriginal -and ($videoFile.FullName -ne $outputFilePath)) {
+            try {
+                Remove-Item $videoFile.FullName -Force
+                Write-Host "✓ Original file deleted: $($videoFile.Name)" -ForegroundColor Green
+            }
+            catch {
+                Write-Host "✗ Failed to delete original file: $($_.Exception.Message)" -ForegroundColor Red
+            }
+        }
+    }
+    else {
+        $failureCount++
+    }
+}
 
-:: Clean up temporary file
-del "!TEMP_LIST!" 2>nul
+# Summary
+Write-Host "=================================" -ForegroundColor Blue
+Write-Host "Conversion Summary:" -ForegroundColor Blue
+Write-Host "✓ Successful: $successCount" -ForegroundColor Green
+Write-Host "✗ Failed: $failureCount" -ForegroundColor Red
 
-:: Final summary
-echo ================================
-echo Compression Complete!
-echo ================================
-echo Total files found: !TOTAL_FILES!
-echo Successfully processed: !PROCESSED_FILES!
-echo Failed: !FAILED_FILES!
-echo.
+if ($successCount -gt 0) {
+    $totalCompressionRatio = [math]::Round((1 - ($totalNewSize / $totalOriginalSize)) * 100, 2)
+    Write-Host "Total original size: $(Get-FileSize $totalOriginalSize)" -ForegroundColor Cyan
+    Write-Host "Total new size: $(Get-FileSize $totalNewSize)" -ForegroundColor Cyan
+    Write-Host "Total size reduction: $totalCompressionRatio%" -ForegroundColor Magenta
+    Write-Host "Space saved: $(Get-FileSize ($totalOriginalSize - $totalNewSize))" -ForegroundColor Magenta
+}
 
-if !FAILED_FILES! gtr 0 (
-    echo Some files failed to process. Check the output above for details.
-)
-
-echo Output directory: !OUTPUT_DIR!
-echo.
-pause
+Write-Host "Script completed!" -ForegroundColor Blue
