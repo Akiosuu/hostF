@@ -1,135 +1,132 @@
 @echo off
 setlocal enabledelayedexpansion
 
-rem MP4 Video Compression Script for Windows
-rem Compresses all .mp4 files in a directory while preserving folder structure
-rem Usage: compress_videos.bat "source_directory" "output_directory"
+echo MP4 Video Compression Script for Windows
+echo =========================================
 
-rem Function to display usage
-:usage
-echo Usage: %~nx0 "source_directory" "output_directory"
-echo.
-echo This script compresses all .mp4 files in the source directory
-echo and saves them to the output directory with the same folder structure.
-echo.
-echo Options that can be modified in the script:
-echo   - CRF value (default: 23) - lower = better quality, higher file size
-echo   - Preset (default: medium) - ultrafast, superfast, veryfast, faster, fast, medium, slow, slower, veryslow
-echo.
-pause
-exit /b 1
-
-rem Check if ffmpeg is installed
-:check_ffmpeg
-ffmpeg -version >nul 2>&1
-if errorlevel 1 (
-    echo Error: ffmpeg is not installed or not in PATH
-    echo Please install ffmpeg first:
-    echo   Download from https://ffmpeg.org/download.html
-    echo   Or use chocolatey: choco install ffmpeg
-    echo   Or use winget: winget install ffmpeg
+rem Check if arguments were provided
+if "%~1"=="" (
+    echo Error: No source directory specified
+    echo Usage: %~nx0 "source_directory" "output_directory"
+    echo Example: %~nx0 "C:\Videos" "C:\CompressedVideos"
     pause
     exit /b 1
 )
-goto :eof
 
-rem Compression settings - modify these as needed
-set CRF=23
-set PRESET=medium
-set CODEC=libx264
-
-rem Check arguments
 if "%~2"=="" (
-    call :usage
+    echo Error: No output directory specified
+    echo Usage: %~nx0 "source_directory" "output_directory"
+    echo Example: %~nx0 "C:\Videos" "C:\CompressedVideos"
+    pause
+    exit /b 1
 )
 
 set "SOURCE_DIR=%~1"
 set "OUTPUT_DIR=%~2"
 
-rem Remove trailing backslashes
-if "%SOURCE_DIR:~-1%"=="\" set "SOURCE_DIR=%SOURCE_DIR:~0,-1%"
-if "%OUTPUT_DIR:~-1%"=="\" set "OUTPUT_DIR=%OUTPUT_DIR:~0,-1%"
+echo Source Directory: %SOURCE_DIR%
+echo Output Directory: %OUTPUT_DIR%
+echo.
 
-rem Validate source directory
+rem Check if source directory exists
 if not exist "%SOURCE_DIR%" (
-    echo Error: Source directory '%SOURCE_DIR%' does not exist
+    echo Error: Source directory does not exist: %SOURCE_DIR%
     pause
     exit /b 1
 )
 
-rem Create output directory if it doesn't exist
-if not exist "%OUTPUT_DIR%" mkdir "%OUTPUT_DIR%"
-
-rem Check for ffmpeg
-call :check_ffmpeg
-
-echo Starting MP4 compression...
-echo Source: %SOURCE_DIR%
-echo Output: %OUTPUT_DIR%
-echo Settings: CRF=%CRF%, Preset=%PRESET%, Codec=%CODEC%
+rem Check if ffmpeg is available
+echo Checking for ffmpeg...
+ffmpeg -version >nul 2>&1
+if errorlevel 1 (
+    echo Error: ffmpeg is not installed or not in PATH
+    echo Please install ffmpeg from: https://ffmpeg.org/download.html
+    echo Or use: winget install ffmpeg
+    pause
+    exit /b 1
+)
+echo ffmpeg found!
 echo.
 
-rem Initialize counters
-set /a "total_files=0"
-set /a "processed_files=0"
-set /a "skipped_files=0"
-
-rem Count total MP4 files first
-echo Scanning for MP4 files...
-for /r "%SOURCE_DIR%" %%f in (*.mp4) do (
-    set /a "total_files+=1"
+rem Create output directory
+if not exist "%OUTPUT_DIR%" (
+    echo Creating output directory...
+    mkdir "%OUTPUT_DIR%"
 )
 
-echo Found !total_files! MP4 files to process
+rem Compression settings
+set CRF=23
+set PRESET=medium
+
+echo Compression settings: CRF=%CRF%, Preset=%PRESET%
 echo.
 
-rem Process each MP4 file
-set /a "current=0"
+rem Count MP4 files first
+echo Scanning for MP4 files...
+set count=0
 for /r "%SOURCE_DIR%" %%f in (*.mp4) do (
-    set /a "current+=1"
+    set /a count+=1
+)
+
+if %count%==0 (
+    echo No MP4 files found in: %SOURCE_DIR%
+    pause
+    exit /b 0
+)
+
+echo Found %count% MP4 files to process
+echo.
+
+rem Process files
+set /a processed=0
+set /a failed=0
+
+for /r "%SOURCE_DIR%" %%f in (*.mp4) do (
+    set /a processed+=1
     
-    rem Calculate relative path
-    set "input_file=%%f"
-    set "relative_path=!input_file:%SOURCE_DIR%\=!"
+    rem Get relative path
+    set "fullpath=%%f"
+    set "relpath=!fullpath:%SOURCE_DIR%\=!"
     
-    rem Create output file path
-    set "output_file=%OUTPUT_DIR%\!relative_path!"
+    rem Create output path
+    set "outfile=%OUTPUT_DIR%\!relpath!"
     
-    rem Create output directory structure
-    for %%d in ("!output_file!") do (
-        if not exist "%%~dpd" mkdir "%%~dpd"
+    echo [!processed!/%count%] Processing: !relpath!
+    
+    rem Create output directory for this file
+    for %%d in ("!outfile!") do (
+        set "outdir=%%~dpd"
+        if not exist "!outdir!" mkdir "!outdir!"
     )
     
-    echo Processing (!current!/!total_files!): !relative_path!
-    
-    rem Skip if output file already exists and is newer
-    if exist "!output_file!" (
-        echo   ⏭️  Skipping (output exists^)
-        set /a "skipped_files+=1"
+    rem Check if output already exists
+    if exist "!outfile!" (
+        echo   File already exists, skipping...
     ) else (
         rem Compress the video
-        ffmpeg -i "!input_file!" -c:v %CODEC% -preset %PRESET% -crf %CRF% -c:a aac -b:a 128k -movflags +faststart -y "!output_file!" -v quiet -stats
+        echo   Compressing...
+        ffmpeg -i "%%f" -c:v libx264 -preset %PRESET% -crf %CRF% -c:a aac -b:a 128k -movflags +faststart -y "!outfile!" -hide_banner -loglevel error
         
         if !errorlevel! equ 0 (
-            echo   ✅ Compressed successfully
-            set /a "processed_files+=1"
+            echo   ✓ Success
         ) else (
-            echo   ❌ Failed to compress
+            echo   ✗ Failed
+            set /a failed+=1
         )
     )
-    
     echo.
 )
 
-rem Final summary
-echo ==================================
+echo ==========================================
 echo Compression Summary:
-echo ==================================
-echo Total files found: !total_files!
-echo Successfully processed: !processed_files!
-echo Skipped: !skipped_files!
-set /a "failed=total_files-processed_files-skipped_files"
-echo Failed: !failed!
+echo ==========================================
+echo Total files: %count%
+echo Processed: %processed%
+echo Failed: %failed%
+set /a success=processed-failed
+echo Successful: %success%
 echo.
-echo Compression complete! Output saved to: %OUTPUT_DIR%
+echo Output directory: %OUTPUT_DIR%
+echo.
+echo Compression complete!
 pause
