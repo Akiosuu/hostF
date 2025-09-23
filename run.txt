@@ -1,4 +1,39 @@
-@echo off
+:: If still no files found, do additional diagnostics
+if !TOTAL_FILES! equ 0 (
+    echo.
+    echo No MKV files found with any method. Running diagnostics...
+    echo.
+    
+    :: Check for other video formats to help diagnose
+    echo Checking for all video file types in directory:
+    for %%ext in (mkv MKV mp4 MP4 avi AVI mov MOV wmv WMV flv FLV) do (
+        set "COUNT=0"
+        for /f "delims=" %%c in ('dir "!SOURCE_DIR!\*.%%ext" /s /b 2^>nul ^| find /c /v ""') do set "COUNT=%%c"
+        if !COUNT! gtr 0 echo   Found !COUNT! .%%ext files
+    )
+    
+    echo.
+    echo Checking a few sample filenames:
+    dir "!SOURCE_DIR!" /s /b | findstr /i "\.mkv \.mp4 \.avi \.mov" | head -10 2>nul
+    if errorlevel 1 (
+        set "SAMPLE_COUNT=0"
+        for /f "tokens=*" %%f in ('dir "!SOURCE_DIR!" /s /b ^| findstr /i "\.mkv \.mp4 \.avi \.mov"') do (
+            echo   %%f
+            set /a SAMPLE_COUNT+=1
+            if !SAMPLE_COUNT! geq 10 goto :end_samples
+        )
+        :end_samples
+    )
+    
+    echo.
+    echo Please check:
+    echo 1. Are your video files actually .mkv files?
+    echo 2. Is the source path correct: !SOURCE_DIR!
+    echo 3. Do you have permission to access the files?
+    del "!TEMP_LIST!" 2>nul
+    pause
+    exit /b 1
+)@echo off
 setlocal enabledelayedexpansion
 
 :: MKV to MP4 Conversion and Compression Script
