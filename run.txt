@@ -38,7 +38,7 @@ function Get-FileSize {
     $index = 0
     $size = $Bytes
     
-    while ($size -gt 1024 -and $index -lt $sizes.Length - 1) {
+    while ($size -gt 1024 -and $index -lt ($sizes.Length - 1)) {
         $size = $size / 1024
         $index++
     }
