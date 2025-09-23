@@ -73,7 +73,7 @@ set "PROCESSED_FILES=0"
 set "FAILED_FILES=0"
 
 :: Count total MP4 files first
-for /r "!SOURCE_DIR!" %%f in (*.mp4) do (
+for /r "!SOURCE_DIR!" %%f in (*.mkv) do (
     set /a TOTAL_FILES+=1
 )
 
@@ -81,7 +81,7 @@ echo Found !TOTAL_FILES! MP4 files to process.
 echo.
 
 :: Process all MP4 files
-for /r "!SOURCE_DIR!" %%f in (*.mp4) do (
+for /r "!SOURCE_DIR!" %%f in (*.mkv) do (
     set "INPUT_FILE=%%f"
     
     :: Get just the drive letter from source directory for proper path calculation
@@ -180,3 +180,4 @@ if !FAILED_FILES! gtr 0 (
 echo Output directory: !OUTPUT_DIR!
 echo.
 pause
+
