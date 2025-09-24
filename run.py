@@ -375,20 +375,17 @@ class VideoConverter:
         
         sys.stdout.flush()
     
-    def print_file_progress(self, filename: str, directory: str, progress: str, status: str, is_final: bool = False):
-        """Print progress for current file."""
+    def print_file_progress(self, filename: str, directory: str, progress: str, status: str):
+        """Print progress for current file (always updates in place)."""
         # Truncate strings to fit columns
         filename = filename[:32] + "..." if len(filename) > 35 else filename
         directory = directory[:22] + "..." if len(directory) > 25 else directory
         status = status[:17] + "..." if len(status) > 20 else status
         
-        if is_final:
-            # Move to new line for final result
-            sys.stdout.write(f"\n{filename:<35} {directory:<25} {progress:<20} {status}")
-        else:
-            # Update current line
-            sys.stdout.write(f"\r{filename:<35} {directory:<25} {progress:<20} {status}")
-        
+        # Always update current line (no newlines)
+        sys.stdout.write(f"\r{filename:<35} {directory:<25} {progress:<20} {status}")
+        # Pad with spaces to clear any remaining characters
+        sys.stdout.write(" " * 10)
         sys.stdout.flush()
     
     def convert_video(self, input_path: Path, output_path: Path, file_index: int, tracker: EnhancedProgressTracker) -> Tuple[bool, str]:
@@ -402,7 +399,7 @@ class VideoConverter:
             
             # Skip if output file already exists
             if self.skip_existing and output_path.exists():
-                self.print_file_progress(filename, directory, "SKIPPED", "already exists", True)
+                self.print_file_progress(filename, directory, "SKIPPED", "already exists")
                 return True, "skipped"
             
             # Get input file size
@@ -482,7 +479,7 @@ class VideoConverter:
                 else:
                     size_info = f"-> {output_size_str}"
                 
-                self.print_file_progress(filename, directory, "COMPLETE", size_info, True)
+                self.print_file_progress(filename, directory, "COMPLETE", size_info)
                 return True, "success"
             else:
                 # Failed
@@ -492,12 +489,12 @@ class VideoConverter:
                     except:
                         pass
                 
-                self.print_file_progress(filename, directory, "FAILED", "conversion error", True)
+                self.print_file_progress(filename, directory, "FAILED", "conversion error")
                 return False, "failed"
                 
         except Exception as e:
             self.logger.error(f"Error converting {input_path}: {e}")
-            self.print_file_progress(filename, directory, "ERROR", str(e)[:17], True)
+            self.print_file_progress(filename, directory, "ERROR", str(e)[:17])
             return False, "error"
     
     def convert_all(self) -> dict:
